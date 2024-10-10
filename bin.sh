@@ -211,6 +211,7 @@ gyt() {
     if [ "$#" -eq 0 ]; then
         show_help
     else
+        all_args="$@"
         func="$1"
         shift # Remove function name from arguments
         case "$func" in
@@ -234,8 +235,8 @@ gyt() {
                 freshen-current-branch "$@"
                 ;;
             *)
-                echo "Invalid function name: $func"
-                echo "Use 'gyt help' to see a list of all available commands."
+                echo "gyt: forwarding to git $all_args"
+                git $all_args
                 ;;
         esac
     fi
