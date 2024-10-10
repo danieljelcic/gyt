@@ -4,6 +4,8 @@
 
 `gyt` is a Bash script that provides a set of shorthand commands for common Git operations. It's designed to streamline your Git workflow by offering easy-to-remember aliases for frequently used Git commands and sequences.
 
+Shorthands are not implemented in order of any global relevance and are very much not exhaustive.
+
 ## Features
 
 - Simplified Git commands with intuitive aliases
@@ -55,6 +57,8 @@ For detailed help on a specific command, use:
 ```
 gyt help <command>
 ```
+
+Note that most commands use the git branch and remote names pre-defined at the top of the `bin.sh` file. The current values are standard, but should be changed as per a user's specific naming convention.
 
 ## Available Commands
 
