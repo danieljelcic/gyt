@@ -1,8 +1,9 @@
 #!/bin/bash
 
 
-# Set your main branch name (replace 'main' with 'master' or another name if needed)
-MAIN_BRANCH="main"
+# Optional override for the default branch (e.g. main, master).
+# Leave unset to auto-detect from the current repository.
+GYT_MAIN_BRANCH="${GYT_MAIN_BRANCH:-}"
 REMOTE_ORIGIN="origin"
 REMOTE_UPSTREAM="origin"
 
@@ -39,6 +40,57 @@ REMOTE_UPSTREAM="origin"
 
 # ___ Helper functions ____________________________________
 
+_gyt_default_branch() {
+    local remote="${1:-$REMOTE_ORIGIN}"
+
+    if [ -n "$GYT_MAIN_BRANCH" ]; then
+        echo "$GYT_MAIN_BRANCH"
+        return 0
+    fi
+
+    local branch
+    branch=$(git symbolic-ref --quiet "refs/remotes/$remote/HEAD" 2>/dev/null | sed "s|^refs/remotes/$remote/||")
+    if [ -n "$branch" ]; then
+        echo "$branch"
+        return 0
+    fi
+
+    branch=$(git rev-parse --abbrev-ref "$remote/HEAD" 2>/dev/null)
+    if [ -n "$branch" ] && [ "$branch" != "HEAD" ] && [ "$branch" != "$remote/HEAD" ]; then
+        echo "$branch"
+        return 0
+    fi
+
+    if git show-ref --verify --quiet refs/heads/main; then
+        echo "main"
+        return 0
+    fi
+
+    if git show-ref --verify --quiet refs/heads/master; then
+        echo "master"
+        return 0
+    fi
+
+    if git show-ref --verify --quiet "refs/remotes/$remote/main"; then
+        echo "main"
+        return 0
+    fi
+
+    if git show-ref --verify --quiet "refs/remotes/$remote/master"; then
+        echo "master"
+        return 0
+    fi
+
+    branch=$(git config --get init.defaultBranch 2>/dev/null)
+    if [ -n "$branch" ] && git show-ref --verify --quiet "refs/heads/$branch"; then
+        echo "$branch"
+        return 0
+    fi
+
+    echo "Error: Could not determine default branch. Set GYT_MAIN_BRANCH or configure $remote/HEAD." >&2
+    return 1
+}
+
 confirm() {
     if [ "$#" -ne 1 ]; then
         message="Are you sure?"
@@ -69,8 +121,8 @@ to-latest-main() {
         cat << EOF
 Usage: gyt tlm, gyt to-latest-main
 
-Switches to the main branch and pulls the latest changes.
-This ensures your local main branch is up-to-date with the remote.
+Switches to the default branch and pulls the latest changes.
+This ensures your local default branch is up-to-date with the remote.
 EOF
         return 0
     fi
@@ -81,19 +133,22 @@ EOF
         return 1
     fi
 
-    # Switch to the main branch
-    git checkout "$MAIN_BRANCH" || {
-        echo "Error: Failed to switch to the $MAIN_BRANCH branch."
+    local default_branch
+    default_branch=$(_gyt_default_branch) || return 1
+
+    # Switch to the default branch
+    git checkout "$default_branch" || {
+        echo "Error: Failed to switch to the $default_branch branch."
         return 1
     }
 
     # Pull the latest changes from the remote repository
-    git pull "$REMOTE_ORIGIN" "$MAIN_BRANCH" || {
+    git pull "$REMOTE_ORIGIN" "$default_branch" || {
         echo "Error: Failed to pull changes from the remote repository."
         return 1
     }
 
-    echo "Successfully switched to $MAIN_BRANCH and pulled the latest changes from $REMOTE_ORIGIN."
+    echo "Successfully switched to $default_branch and pulled the latest changes from $REMOTE_ORIGIN."
 }
 
 # Creates a new branch from the latest main branch
@@ -102,7 +157,7 @@ branch-from-latest-main() {
         cat << EOF
 Usage: gyt bflm <branch_name>, gyt branch-from-latest-main <branch_name>
 
-Creates a new branch from the latest main branch.
+Creates a new branch from the latest default branch.
 This ensures your new branch starts with the most recent changes.
 
 Args: <branch_name> - The name of the new branch to create
@@ -166,21 +221,23 @@ freshen-current-branch() {
         cat << EOF
 Usage: gyt fcb, gyt freshen-current-branch
 
-Updates the current branch with the latest changes from the main branch.
-This helps keep your feature branch up-to-date with main.
+Updates the current branch with the latest changes from the default branch.
+This helps keep your feature branch up-to-date with the default branch.
 EOF
         return 0
     fi
 
+    local branch_name default_branch
     branch_name=$(git branch --show-current)
+    default_branch=$(_gyt_default_branch) || return 1
     to-latest-main || return $?
 
-    if [ "$branch_name" = "$MAIN_BRANCH" ]; then
+    if [ "$branch_name" = "$default_branch" ]; then
         return 0
     fi
 
     git checkout "$branch_name" || return 1
-    git merge "$MAIN_BRANCH" || return 1
+    git merge "$default_branch" || return 1
 }
 
 # ___ Commands for getting help ___________________________
@@ -190,13 +247,13 @@ show_help() {
     cat << EOF
 Git Shorthand Commands:
   gyt h, gyt help               : Show this help message
-  gyt tlm, gyt to-latest-main   : Switch to main branch and pull latest changes
+  gyt tlm, gyt to-latest-main   : Switch to default branch and pull latest changes
   gyt bflm <branch_name>, gyt branch-from-latest-main <branch_name>
-                                : Create a new branch from the latest main
+                                : Create a new branch from the latest default branch
   gyt catr <message> [<remote>], gyt commit-all-to-remote <message> [<remote>]
                                 : Commit all changes and push to remote
   gyt fcb, gyt freshen-current-branch
-                                : Update current branch with latest changes from main
+                                : Update current branch with latest changes from default branch
 
 For more detailed information on a specific command, use:
   gyt help <command>
