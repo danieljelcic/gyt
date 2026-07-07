@@ -52,12 +52,12 @@ confirm() {
     confirm=$(echo "$confirm" | tr '[:upper:]' '[:lower:]')
 
     if [[ $confirm =~ ^(y|yes)$ ]]; then
-        return true
+        return 0
     elif [[ $confirm =~ ^(n|no)$ ]]; then
-        return false
+        return 1
     else
         echo "Invalid input. Please enter y or n."
-        exit 1
+        return 1
     fi
 }
 
@@ -77,20 +77,20 @@ EOF
 
     # Check if Git is initialized in the current directory
     if ! git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
-    echo "Error: Not a Git repository."
-    exit 1
+        echo "Error: Not a Git repository."
+        return 1
     fi
 
     # Switch to the main branch
     git checkout "$MAIN_BRANCH" || {
-    echo "Error: Failed to switch to the $MAIN_BRANCH branch."
-    exit 1
+        echo "Error: Failed to switch to the $MAIN_BRANCH branch."
+        return 1
     }
 
     # Pull the latest changes from the remote repository
     git pull "$REMOTE_ORIGIN" "$MAIN_BRANCH" || {
-    echo "Error: Failed to pull changes from the remote repository."
-    exit 1
+        echo "Error: Failed to pull changes from the remote repository."
+        return 1
     }
 
     echo "Successfully switched to $MAIN_BRANCH and pulled the latest changes from $REMOTE_ORIGIN."
@@ -115,9 +115,9 @@ EOF
         return 1
     fi
     local branch_name="$1"
-    to-latest-main
+    to-latest-main || return $?
 
-    git checkout -b "$branch_name"
+    git checkout -b "$branch_name" || return 1
 }
 
 # Commits all changes and pushes to the remote repository
@@ -151,14 +151,12 @@ EOF
 
     git status
 
-    confirmed=$(confirm "Are you sure you want to commit all of the above to $remote_name/$branch_name")
-
-    if [ confirmed ]; then
-        git add .
-        git commit -m "$commit_message"
-        git push "$remote_name" "$branch_name"
+    if confirm "Are you sure you want to commit all of the above to $remote_name/$branch_name"; then
+        git add . &&
+        git commit -m "$commit_message" &&
+        git push "$remote_name" "$branch_name" || return 1
     else
-        exit 1
+        return 1
     fi
 }
 
@@ -175,14 +173,14 @@ EOF
     fi
 
     branch_name=$(git branch --show-current)
-    to-latest-main
+    to-latest-main || return $?
 
-    if [ "$branch_name" -eq "$MAIN_BRANCH" ] ; then
-        exit 0
+    if [ "$branch_name" = "$MAIN_BRANCH" ]; then
+        return 0
     fi
 
-    git checkout "$branch_name"
-    git merge "$MAIN_BRANCH"
+    git checkout "$branch_name" || return 1
+    git merge "$MAIN_BRANCH" || return 1
 }
 
 # ___ Commands for getting help ___________________________
@@ -208,38 +206,43 @@ EOF
 # ___ Main logic __________________________________________
 
 gyt() {
+    local rc=0
+
     if [ "$#" -eq 0 ]; then
         show_help
-    else
-        all_args="$@"
-        func="$1"
-        shift # Remove function name from arguments
-        case "$func" in
-            h|help)
-                if [ "$#" -eq 0 ]; then
-                    show_help
-                else
-                    "$1" "help"
-                fi
-                ;;
-            to-latest-main|tlm)
-                to-latest-main
-                ;;
-            branch-from-latest-main|bflm)
-                branch-from-latest-main "$@"
-                ;;
-            commit-all-to-remote|catr)
-                commit-all-to-remote "$@"
-                ;;
-            freshen-current-branch|fcb)
-                freshen-current-branch "$@"
-                ;;
-            *)
-                echo "gyt: forwarding to git $all_args"
-                git $all_args
-                ;;
-        esac
+        return 0
     fi
+
+    local all_args="$*"
+    local func="$1"
+    shift # Remove function name from arguments
+    case "$func" in
+        h|help)
+            if [ "$#" -eq 0 ]; then
+                show_help
+            else
+                "$1" "help" || rc=$?
+            fi
+            ;;
+        to-latest-main|tlm)
+            to-latest-main || rc=$?
+            ;;
+        branch-from-latest-main|bflm)
+            branch-from-latest-main "$@" || rc=$?
+            ;;
+        commit-all-to-remote|catr)
+            commit-all-to-remote "$@" || rc=$?
+            ;;
+        freshen-current-branch|fcb)
+            freshen-current-branch "$@" || rc=$?
+            ;;
+        *)
+            echo "gyt: forwarding to git $all_args"
+            git $all_args || rc=$?
+            ;;
+    esac
+
+    return "$rc"
 }
 
 # Provides autocomplete functionality for the gyt command
@@ -274,4 +277,5 @@ _gyt_autocomplete() {
 complete -F _gyt_autocomplete gyt
 
 # Export the gyt function so it can be used as a command
+# Uncomment below only if sourcing this on bash
 export -f gyt
